@@ -3,6 +3,7 @@
 ![GNOME 40+](https://img.shields.io/badge/gnome-40%2B-blueviolet)
 ![colosseum version](https://img.shields.io/badge/version-49-brightgreen.svg)
 ![GPL v3 License](https://img.shields.io/badge/license-GPL%20v3-blue.svg)
+<img width="486" height="971" alt="Colosseum screenshot" src="https://github.com/user-attachments/assets/618b4c41-889a-4a6c-859e-d1dc4845682e" />
 
 <p align="center">
 	<img src="https://photos.app.goo.gl/qMbJ843xX8RZWKM39">
