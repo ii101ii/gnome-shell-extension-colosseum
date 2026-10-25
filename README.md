@@ -1,0 +1,113 @@
+# colosseum
+
+![GNOME 40+](https://img.shields.io/badge/gnome-40%2B-blueviolet)
+![colosseum version](https://img.shields.io/badge/version-49-brightgreen.svg)
+![GPL v3 License](https://img.shields.io/badge/license-GPL%20v3-blue.svg)
+
+<p align="center">
+	<img src="https://user-images.githubusercontent.com/14242625/126881502-035c4601-686c-4a42-803b-ca817ad56ea4.png">
+</p>
+
+A gnome-shell extension to view live scores for your favorite sports teams.
+
+Scoreboards show 24px team logos alongside team names in both compact and
+expanded views. Logos load asynchronously from ESPN and are cached in memory
+until the extension is disabled. Teams without an available logo still show
+their names and scores.
+
+# Installation
+
+### From extensions.gnome.org
+
+Visit [extensions.gnome.org](https://extensions.gnome.org/extension/4207/colosseum/) and click on the switch to install colosseum.
+
+### From source
+
+```
+$ git clone https://github.com/sereneblue/gnome-shell-extension-colosseum.git
+$ cd gnome-shell-extension-colosseum
+```
+
+`build.sh` takes two arguments: the GNOME Shell version target and the package mode.
+
+* **Version** — `45` (GNOME 45+, default) or `pre45` (GNOME 40-44)
+* **Mode** — `manual` (default) or `release`
+
+Build for a manual install:
+```
+$ ./build.sh 45 manual      # GNOME 45+   -> colosseum_45.zip
+$ ./build.sh pre45 manual   # GNOME 40-44 -> colosseum_pre45.zip
+```
+
+The `manual` builds include a compiled schema (`gschemas.compiled`), so they
+can be extracted straight into the extensions directory.
+
+Extract the contents of the newly created zip file into:
+```
+~/.local/share/gnome-shell/extensions/colosseum@sereneblue
+```
+
+Build a submission for extensions.gnome.org:
+```
+$ ./build.sh 45 release     # -> colosseum_45_release.zip
+$ ./build.sh pre45 release  # -> colosseum_pre45_release.zip
+```
+
+For the 45 build, `release` omits `gschemas.compiled`, as the GNOME 45+ shell
+compiles the bundled schema at install time. The `pre45` release keeps the
+compiled schema, since pre-45 shells do not compile it automatically.
+
+# Configuration
+
+![colosseum preferences](https://user-images.githubusercontent.com/14242625/126881524-a9443361-12e1-4075-9cbc-8d257930cab6.png)
+
+
+- The top panel can display `N (# of remaining games)` or the `A (# of live games) / B (# of remaining games)`.
+
+- Compact mode reduces the number of clicks needed to display scores from a league with only one game (as shown in the screen shot for NBA).
+
+- Always On pins the scoreboard below its panel button so it stays visible while
+	you use other applications. Scores refresh every minute without closing the
+	scoreboard or collapsing the selected league. Turning it off restores the
+	normal popup and your configured update frequency.
+
+
+#### Leagues
+
+There are 19 supported sports leagues:
+
+	Bundesliga
+	2. Bundesliga
+	English Football League Championship
+	English League One
+	English Premier League
+	Israeli Premier League
+	La Liga
+	Ligue 1
+	Major League Baseball
+	Major League Soccer
+	National Basketball Association
+	National Football League
+	National Hockey League
+	NCAA Football
+	NCAA Men's Basketball
+	NCAA Women's Basketball
+	Serie A
+	UEFA Champions League
+	Women's National Basketball Association
+
+#### Tournaments
+
+There are 11 supported tournaments:
+
+	CONCACAF Gold Cup
+	Copa America
+	ATP
+	FA Cup
+	FIFA World Cup
+	Leagues Cup
+	UEFA Europa Conference League
+	UEFA Europa League
+	UEFA European Championship
+	UEFA Women's Champions League
+	WTA

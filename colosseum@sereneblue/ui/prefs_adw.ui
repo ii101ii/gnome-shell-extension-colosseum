@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<interface>
+  <requires lib="gtk" version="4.0" />
+  <requires lib="adw" version="1.0" />
+
+  <object class="GtkAdjustment" id="updateFrequency">
+    <property name="lower">1</property>
+    <property name="upper">30</property>
+    <property name="value">1</property>
+    <property name="step_increment">1</property>
+  </object>
+
+  <object class="AdwNavigationView" id="navView">
+
+    <child>
+      <object class="AdwNavigationPage" id="main_prefs_page">
+        <property name="title" translatable="yes">Preferences</property>
+        <property name="tag">main-page</property>
+        <property name="child">
+          <object class="AdwToolbarView">
+            <child type="top">
+              <object class="AdwHeaderBar" id="header_main" />
+            </child>
+
+            <property name="content">
+              <object class="AdwPreferencesPage">
+                <property
+                                    name="icon_name"
+                                >applications-system-symbolic</property>
+
+                <child>
+                  <object class="AdwPreferencesGroup">
+                    <property
+                                            name="title"
+                                            translatable="yes"
+                                        >Display Options</property>
+
+                    <child>
+                      <object
+                                                class="AdwActionRow"
+                                                id="prefs_label_followed_only"
+                                            >
+                        <property
+                                                    name="title"
+                                                    translatable="yes"
+                                                >Only show followed teams</property>
+                        <property
+                                                    name="activatable-widget"
+                                                >prefs_followed_only</property>
+                        <child type="suffix">
+                          <object class="GtkSwitch" id="prefs_followed_only">
+                            <property name="valign">center</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+
+                    <child>
+                      <object
+                                                class="AdwActionRow"
+                                                id="prefs_label_compact_mode"
+                                            >
+                        <property
+                                                    name="title"
+                                                    translatable="yes"
+                                                >Enable compact mode</property>
+                        <property
+                                                    name="activatable-widget"
+                                                >prefs_compact_mode</property>
+                        <child type="suffix">
+                          <object class="GtkSwitch" id="prefs_compact_mode">
+                            <property name="valign">center</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+
+                    <child>
+                      <object
+                                                class="AdwActionRow"
+                                                id="prefs_label_position_topbar"
+                                            >
+                        <property
+                                                    name="title"
+                                                    translatable="yes"
+                                                >Position in Top Bar</property>
+                        <child type="suffix">
+                          <object
+                                                        class="GtkComboBoxText"
+                                                        id="prefs_position_topbar"
+                                                    >
+                            <items>
+                              <item id="0">Left</item>
+                              <item id="1">Right</item>
+                            </items>
+                            <property name="valign">center</property>
+                            <property name="halign">end</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+
+                    <child>
+                      <object class="AdwActionRow" id="prefs_label_always_on">
+                        <property
+                                                    name="title"
+                                                    translatable="yes"
+                                                >Always On</property>
+                        <property name="activatable-widget">prefs_always_on</property>
+                        <child type="suffix">
+                          <object class="GtkSwitch" id="prefs_always_on">
+                            <property name="valign">center</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+
+                <child>
+                  <object class="AdwPreferencesGroup">
+                    <property name="title" translatable="yes">System</property>
+                    <child>
+                      <object class="AdwActionRow" id="prefs_label_update">
+                        <property
+                                                    name="title"
+                                                    translatable="yes"
+                                                >Update Frequency (min)</property>
+                        <child type="suffix">
+                          <object class="GtkSpinButton" id="prefs_frequency">
+                            <property
+                                                            name="adjustment"
+                                                        >updateFrequency</property>
+                            <property name="numeric">True</property>
+                            <property name="valign">center</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+
+                <child>
+                  <object class="AdwPreferencesGroup">
+                    <property name="title" translatable="yes">Leagues</property>
+                    <child>
+                      <object class="AdwPreferencesGroup" id="leagues" />
+                    </child>
+                </object>
+                </child>
+
+                <child>
+                  <object class="AdwPreferencesGroup">
+                    <property
+                                            name="title"
+                                            translatable="yes"
+                                        >Tournaments</property>
+                    <child>
+                      <object class="AdwPreferencesGroup" id="tournaments" />
+                    </child>
+                  </object>
+                </child>
+
+              </object>
+            </property>
+          </object>
+        </property>
+      </object>
+    </child>
+
+    <child>
+      <object class="AdwNavigationPage" id="leagueDetails">
+        <property name="tag">league-details</property>
+        <property name="title" translatable="yes" />
+        <property name="child">
+          <object class="AdwToolbarView">
+            <child type="top">
+              <object class="AdwHeaderBar" id="header_details" />
+            </child>
+
+            <property name="content">
+              <object class="AdwPreferencesPage">
+                <child>
+                  <object class="AdwPreferencesGroup">
+                    <property
+                                            name="title"
+                                            translatable="yes"
+                                        >League Settings</property>
+                    <child>
+                      <object class="AdwActionRow" id="leagueRowContainer">
+                        <property
+                                                    name="title"
+                                                    translatable="yes"
+                                                >Enabled</property>
+                        <child type="suffix">
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+
+                <child>
+                  <object class="AdwPreferencesGroup">
+                    <property
+                                            name="title"
+                                            translatable="yes"
+                                        >Following</property>
+                    <child>
+                      <object class="GtkListBox" id="followedList">
+                        <property name="selection-mode">none</property>
+                        <style>
+                          <class name="frame" />
+                        </style>
+                        </object>
+                    </child>
+                  </object>
+                </child>
+
+                <child>
+                  <object class="AdwPreferencesGroup">
+                    <property name="title" translatable="yes">Teams</property>
+                    <child>
+                      <object class="GtkListBox" id="notFollowingList">
+                        <property name="selection-mode">none</property>
+                        <style>
+                          <class name="frame" />
+                        </style>
+                        </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </property>
+          </object>
+        </property>
+      </object>
+    </child>
+
+  </object>
+</interface>

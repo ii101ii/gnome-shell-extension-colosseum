@@ -1,0 +1,713 @@
+import Clutter from "gi://Clutter";
+import Gio from "gi://Gio";
+import GLib from "gi://GLib";
+import GObject from "gi://GObject";
+import Meta from "gi://Meta";
+import St from "gi://St";
+
+import * as Main from "resource:///org/gnome/shell/ui/main.js";
+import * as PanelMenu from "resource:///org/gnome/shell/ui/panelMenu.js";
+import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
+import * as Config from "resource:///org/gnome/shell/misc/config.js";
+
+import * as CONSTANTS from "./const.js";
+import ColosseumClient from "./client.js";
+import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
+
+function warn(message) {
+  console.warn(message);
+}
+
+const EXT_PATH = import.meta.url;
+
+const GameLink = GObject.registerClass(
+  class GameLink extends St.Label {
+    _init(link = "") {
+      super._init({
+        reactive: true,
+        style_class: "shell-link",
+        y_expand: true,
+        x_align: Clutter.ActorAlign.END,
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+
+      this._url = link;
+      this.clutter_text.set_markup(`<span><u>Visit</u></span>`);
+    }
+
+    vfunc_button_press_event(event) {
+      if (!this.visible || this.get_paint_opacity() === 0)
+        return Clutter.EVENT_PROPAGATE;
+
+      return true;
+    }
+
+    vfunc_button_release_event(event) {
+      if (!this.visible || this.get_paint_opacity() === 0 || !this._url)
+        return Clutter.EVENT_PROPAGATE;
+
+      try {
+        Gio.app_info_launch_default_for_uri(
+          this._url,
+          global.create_app_launch_context(0, -1),
+        );
+      } catch (e) {
+        warn(`colosseum: failed to open "${this._url}": ${e}`);
+      }
+
+      return Clutter.EVENT_STOP;
+    }
+
+    vfunc_motion_event(event) {
+      if (!this.visible || this.get_paint_opacity() === 0)
+        return Clutter.EVENT_PROPAGATE;
+
+      if (!this._cursorChanged) {
+        let cursor = "POINTING_HAND";
+        const [major, minor] = Config.PACKAGE_VERSION.split(".").map((s) =>
+          Number(s),
+        );
+
+        if (major >= 48) {
+          cursor = "POINTER";
+        }
+
+        global.display.set_cursor(Meta.Cursor[cursor]);
+        this._cursorChanged = true;
+      }
+
+      return Clutter.EVENT_PROPAGATE;
+    }
+
+    vfunc_leave_event(event) {
+      if (!this.visible || this.get_paint_opacity() === 0)
+        return Clutter.EVENT_PROPAGATE;
+
+      if (this._cursorChanged) {
+        this._cursorChanged = false;
+        global.display.set_cursor(Meta.Cursor.DEFAULT);
+      }
+
+      return super.vfunc_leave_event(event);
+    }
+  },
+);
+const RefreshMenuItem = GObject.registerClass(
+  {
+    GTypeName: "ColosseumRefreshMenuItem",
+    Signals: {
+      refresh: {},
+    },
+  },
+  class RefreshMenuItem extends PopupMenu.PopupMenuItem {
+    _init() {
+      super._init("Refresh");
+    }
+
+    // Emit "refresh" instead of "activate" to keep the menu open.
+    activate(event) {
+      this.emit("refresh");
+    }
+
+    setLoading(loading) {
+      if (loading) {
+        this.label.set_text("Refreshing…");
+      } else {
+        this.label.set_text("Refresh");
+      }
+    }
+  },
+);
+
+const Colosseum = GObject.registerClass(
+  { GTypeName: "Colosseum" },
+  class Colosseum extends PanelMenu.Button {
+    _init() {
+      super._init(0.0, "colosseum", false);
+
+      this._scores = [];
+      this._timeout = null;
+      this._settings = null;
+      this._signalIds = [];
+      this._scoreboards = [];
+
+      this._stSettings = St.Settings.get();
+      this._colorSchemeSignalId = this._stSettings.connect(
+        "notify::color-scheme",
+        this._applyScoreboardTheme.bind(this),
+      );
+      this._updating = false;
+      this._refreshQueued = false;
+      this._refreshItem = null;
+      this._cancellable = new Gio.Cancellable();
+      this._pinned = false;
+      this.connect("notify::mapped", () => {
+        if (this._settings) this._syncAlwaysOn();
+      });
+      this._sessionModeId = Main.sessionMode.connect("updated", () => {
+        if (this._settings) this._syncAlwaysOn();
+      });
+
+      this._panelBoxLayout = new St.BoxLayout();
+
+      this._icon = new St.Icon({
+        gicon: Gio.icon_new_for_string(
+          EXT_PATH.replace("extension.js", "/icon/colosseum-symbolic.svg"),
+        ),
+        icon_size: 24,
+      });
+
+      this._menuText = new St.Label({
+        text: "",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+
+      this._panelBoxLayout.add_child(this._icon);
+      this._panelBoxLayout.add_child(this._menuText);
+
+      this.hide();
+      this.add_child(this._panelBoxLayout);
+    }
+
+    setSettings(settings) {
+      this._settings = settings;
+      let positionTopbarId = this._settings.connect(
+        "changed::" + CONSTANTS.PREF_POSITION_TOPBAR,
+        this._updatePositionInPanel.bind(this),
+      );
+      this._signalIds.push(positionTopbarId);
+
+      let followedOnlyId = this._settings.connect(
+        "changed::" + CONSTANTS.PREF_FOLLOWED_ONLY,
+        this._update.bind(this),
+      );
+      this._signalIds.push(followedOnlyId);
+
+      let compactModeId = this._settings.connect(
+        "changed::" + CONSTANTS.PREF_COMPACT_MODE,
+        this._update.bind(this),
+      );
+      this._signalIds.push(compactModeId);
+      let updateFreqId = this._settings.connect(
+        "changed::" + CONSTANTS.PREF_UPDATE_FREQ,
+        this._scheduleNextUpdate.bind(this),
+      );
+      this._signalIds.push(updateFreqId);
+      let alwaysOnId = this._settings.connect(
+        "changed::" + CONSTANTS.PREF_ALWAYS_ON,
+        this._onAlwaysOnChanged.bind(this),
+      );
+      this._signalIds.push(alwaysOnId);
+
+      this._client = new ColosseumClient(CONSTANTS, this._settings, this._cancellable);
+    }
+
+    _createTeamRow(team, suffix) {
+      const row = new St.BoxLayout({
+        style_class: "team-row",
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      const logo = new St.Icon({
+        style_class: "team-logo",
+        icon_size: 24,
+        y_align: Clutter.ActorAlign.CENTER,
+      });
+      let destroyed = false;
+      logo.connect("destroy", () => { destroyed = true; });
+      row.add_child(logo);
+      row.add_child(new St.Label({
+        text: team.team,
+        style_class: "team" + suffix,
+        y_align: Clutter.ActorAlign.CENTER,
+      }));
+      this._client.getTeamLogo(team.logo).then((icon) => {
+        if (!destroyed && !this._cancellable.is_cancelled() && icon) {
+          logo.gicon = icon;
+        }
+      });
+      return row;
+    }
+
+    _addGamesToGrid(grid, games, offset = 0, league = null) {
+      if (league != null) {
+        grid.insert_row(offset);
+        grid.insert_column(offset);
+        grid.insert_column(offset);
+        grid.insert_column(offset);
+
+        let leagueName = new St.Label({
+          text: league,
+          y_expand: true,
+          x_align: Clutter.ActorAlign.CENTER,
+          y_align: Clutter.ActorAlign.CENTER,
+        });
+
+        grid.attach(leagueName, 0, offset, 3, 1);
+        offset = offset + 1;
+      }
+
+      let pos;
+      for (let j = 0; j < games.length * 3 - 1; j++) {
+        pos = j + offset;
+
+        grid.insert_row(pos);
+        grid.insert_column(pos);
+        grid.insert_column(pos);
+        grid.insert_column(pos);
+      }
+
+      for (let j = 0; j < games.length; j++) {
+        let homeRow = offset + j * 3;
+        let awayRow = homeRow + 1;
+        let divider_row =
+          games.length == 1 ? 0 : j == games.length - 1 ? 0 : homeRow + 2;
+
+        let homeSuffix = games[j].home.isWinner
+          ? "--winner"
+          : games[j].home.isLoser
+            ? "--loser"
+            : "";
+        let awaySuffix = games[j].away.isWinner
+          ? "--winner"
+          : games[j].away.isLoser
+            ? "--loser"
+            : "";
+
+        let homeLabel = this._createTeamRow(games[j].home, homeSuffix);
+
+        let homeScore = new St.Label({
+          text: games[j].home.score,
+          style_class: "score" + homeSuffix,
+          y_expand: true,
+          y_align: Clutter.ActorAlign.CENTER,
+        });
+
+        let gameMeta = new St.Label({
+          text: games[j].meta,
+          style_class: "meta",
+          y_expand: true,
+          y_align: Clutter.ActorAlign.CENTER,
+        });
+
+        grid.attach(homeLabel, 0, homeRow, 1, 1);
+        grid.attach(homeScore, 1, homeRow, 1, 1);
+        grid.attach(gameMeta, 2, homeRow, 1, 1);
+
+        let awayLabel = this._createTeamRow(games[j].away, awaySuffix);
+
+        let awayScore = new St.Label({
+          text: games[j].away.score,
+          style_class: "score" + awaySuffix,
+          y_expand: true,
+          y_align: Clutter.ActorAlign.CENTER,
+        });
+
+        let gameLink = new GameLink(games[j].link);
+
+        grid.attach(awayLabel, 0, awayRow, 1, 1);
+        grid.attach(awayScore, 1, awayRow, 1, 1);
+        grid.attach(gameLink, 2, awayRow, 1, 1);
+
+        let div = new St.Label({
+          text: "",
+          style_class: "divider",
+          y_expand: true,
+          y_align: Clutter.ActorAlign.CENTER,
+        });
+
+        if (divider_row) {
+          grid.attach(div, 0, divider_row, 3, 1);
+        }
+      }
+
+      if (league != null) {
+        grid.insert_row(pos + 1);
+        grid.insert_column(pos + 1);
+
+        grid.attach(
+          new St.Label({
+            text: "",
+            y_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
+          }),
+          0,
+          pos + 1,
+          1,
+          1,
+        );
+      }
+
+      return pos + 2;
+    }
+
+    _createMenu() {
+      let menus = [];
+      this._scoreboards = [];
+
+      const HAS_COMPACT =
+        this._isCompactMode() &&
+        this._scores.filter((s) => s.games.length === 1).length > 0;
+
+      const compactGrid = new Clutter.GridLayout();
+      compactGrid.set_row_homogeneous(false);
+      compactGrid.set_orientation(Clutter.Orientation.VERTICAL);
+
+      const compactWidget = new St.Widget({
+        style_class: "scoreboard",
+        can_focus: false,
+        track_hover: false,
+        reactive: false,
+        layout_manager: compactGrid,
+      });
+      this._scoreboards.push(compactWidget);
+
+      let offset = 0;
+
+      for (let i = 0; i < this._scores.length; i++) {
+        if (HAS_COMPACT && this._scores[i].games.length === 1) {
+          offset = this._addGamesToGrid(
+            compactGrid,
+            this._scores[i].games,
+            offset,
+            this._scores[i].league,
+          );
+        } else {
+          let baseMenuItem = new PopupMenu.PopupBaseMenuItem({
+            hover: false,
+            activate: false,
+          });
+
+          let submenu = new PopupMenu.PopupSubMenuMenuItem(
+            this._scores[i].league,
+          );
+          submenu.add_style_class_name("scoreBoardPanel");
+
+          let grid = new Clutter.GridLayout();
+          grid.set_row_homogeneous(false);
+          grid.set_orientation(Clutter.Orientation.VERTICAL);
+
+          let g = new St.Widget({
+            style_class: "scoreboard",
+            can_focus: false,
+            track_hover: false,
+            reactive: false,
+            layout_manager: grid,
+          });
+          this._scoreboards.push(g);
+
+          this._addGamesToGrid(grid, this._scores[i].games);
+
+          baseMenuItem.add_child(g);
+          submenu.menu.addMenuItem(baseMenuItem);
+          menus.push(submenu);
+        }
+      }
+
+      if (HAS_COMPACT) {
+        const baseMenuItem = new PopupMenu.PopupBaseMenuItem({
+          hover: false,
+          activate: false,
+        });
+        const scrollView = new St.ScrollView({
+          width: 335,
+          hscrollbar_policy: St.PolicyType.NEVER,
+          vscrollbar_policy: St.PolicyType.AUTOMATIC,
+          enable_mouse_scrolling: true,
+          y_expand: true,
+        });
+        const box = new St.BoxLayout({
+          width: 335,
+          y_expand: true,
+        });
+
+        box.add(compactWidget);
+        scrollView.add_actor(box);
+        baseMenuItem.add_actor(scrollView);
+        menus.unshift(baseMenuItem);
+      }
+
+      this._applyScoreboardTheme();
+      let refreshItem = new RefreshMenuItem();
+      refreshItem.connect("refresh", () => {
+        this._update();
+      });
+      this._refreshItem = refreshItem;
+      menus.push(refreshItem);
+      return menus;
+    }
+
+    _getUpdateSec() {
+      if (this._settings.get_boolean(CONSTANTS.PREF_ALWAYS_ON)) return 60;
+      return (this._settings.get_int(CONSTANTS.PREF_UPDATE_FREQ) || 5) * 60;
+    }
+
+    _onAlwaysOnChanged() {
+      this._syncAlwaysOn();
+      this._setTopBarText();
+      this._scheduleNextUpdate();
+    }
+
+    _syncAlwaysOn() {
+      if (this._cancellable.is_cancelled()) return;
+
+      const pinned = this._settings.get_boolean(CONSTANTS.PREF_ALWAYS_ON);
+      if (pinned && this.menu.isEmpty()) return;
+      const changed = pinned !== this._pinned;
+      if (changed) this.menu.close(0);
+      if (pinned) {
+        Main.panel.menuManager.removeMenu(this.menu);
+      } else if (changed) {
+        Main.panel.menuManager.addMenu(this.menu);
+      }
+      this._pinned = pinned;
+
+      if (pinned && this.mapped && !Main.sessionMode.isLocked && !Main.sessionMode.isGreeter) {
+        this.menu.open(0);
+        if (changed) {
+          const firstLeague = this.menu._getMenuItems().find(
+            (item) => item instanceof PopupMenu.PopupSubMenuMenuItem,
+          );
+          firstLeague?.menu.open(0);
+        }
+      }
+    }
+
+    vfunc_event(event) {
+      if (this._pinned &&
+          (event.type() === Clutter.EventType.TOUCH_BEGIN ||
+           event.type() === Clutter.EventType.BUTTON_PRESS)) {
+        this.menu.open(0);
+        return Clutter.EVENT_STOP;
+      }
+      return super.vfunc_event(event);
+    }
+
+    _isCompactMode() {
+      return this._settings.get_boolean(CONSTANTS.PREF_COMPACT_MODE);
+    }
+
+    _isLightTheme() {
+      return (
+        Main.getStyleVariant() === "light"
+      );
+    }
+
+    _applyScoreboardTheme() {
+      const isLightTheme = this._isLightTheme();
+      for (let i = 0; i < this._scoreboards.length; i++) {
+        if (isLightTheme)
+          this._scoreboards[i].add_style_class_name("colosseum-theme-light");
+        else
+          this._scoreboards[i].remove_style_class_name("colosseum-theme-light");
+      }
+    }
+
+    async _update() {
+      if (this._cancellable.is_cancelled()) {
+        return;
+      }
+
+      if (this._updating) {
+        this._refreshQueued = true;
+        return;
+      }
+
+      if (this._refreshItem) {
+        this._refreshItem.setSensitive(false);
+        this._refreshItem.setLoading(true);
+      }
+
+      this._scheduleNextUpdate();
+
+      this._updating = true;
+      try {
+        await this._loadData();
+
+        if (this._cancellable.is_cancelled()) {
+          return;
+        }
+
+        const wasOpen = this.menu.isOpen;
+        const openLeagues = new Set(this.menu._getMenuItems()
+          .filter((item) => item instanceof PopupMenu.PopupSubMenuMenuItem && item.menu.isOpen)
+          .map((item) => item.label.text));
+        let menus = this._createMenu();
+        this.menu.removeAll();
+
+        for (let i = 0; i < menus.length; i++) {
+          this.menu.addMenuItem(menus[i]);
+          if (menus[i] instanceof PopupMenu.PopupSubMenuMenuItem && openLeagues.has(menus[i].label.text)) {
+            menus[i].menu.open(0);
+          }
+        }
+
+        this._setTopBarText();
+        if (wasOpen) this.menu.open(0);
+        this._syncAlwaysOn();
+      } catch (e) {
+        warn(`colosseum: scoreboard update failed: ${e}`);
+      } finally {
+        this._updating = false;
+        if (this._refreshItem) {
+          this._refreshItem.setSensitive(true);
+          this._refreshItem.setLoading(false);
+        }
+      }
+
+      if (this._refreshQueued) {
+        this._refreshQueued = false;
+        this._update();
+      }
+    }
+
+    _scheduleNextUpdate() {
+      if (this._timeout) {
+        GLib.source_remove(this._timeout);
+        this._timeout = null;
+      }
+
+      this._timeout = GLib.timeout_add_seconds(
+        GLib.PRIORITY_DEFAULT,
+        this._getUpdateSec(),
+        () => {
+          this._timeout = null;
+          this._update();
+          return GLib.SOURCE_REMOVE;
+        },
+      );
+    }
+
+    async _loadData() {
+      this._scores = await this._client.getScores();
+    }
+
+    _setTopBarText() {
+      let remainingGames = 0;
+      let liveGames = 0;
+      let totalGames = 0;
+      let following = 0;
+      let labelText = "";
+
+      for (let i = 0; i < this._scores.length; i++) {
+        totalGames += this._scores[i].games.length;
+        remainingGames += this._scores[i].games.filter(
+          (g) => !g.isComplete,
+        ).length;
+        liveGames += this._scores[i].games.filter((g) => g.live).length;
+
+        for (let j = 0; j < this._scores[i].following.length; j++) {
+          if (following < 2) {
+            labelText += this._scores[i].following[j] + " ";
+          }
+
+          following += 1;
+        }
+      }
+
+      if (labelText === "") {
+        this._icon.show();
+
+        if (totalGames === 0) {
+          if (this._settings.get_boolean(CONSTANTS.PREF_ALWAYS_ON)) {
+            this._panelBoxLayout.show();
+            this.show();
+          } else {
+            this.hide();
+          }
+        } else if (remainingGames === 0) {
+          this._panelBoxLayout.show();
+          this.show();
+        } else if (liveGames === 0) {
+          labelText = "" + remainingGames;
+          this._panelBoxLayout.show();
+          this.show();
+        } else {
+          labelText = `${liveGames} / ${remainingGames}`;
+          this._panelBoxLayout.show();
+          this.show();
+        }
+      } else {
+        this._icon.hide();
+        this._panelBoxLayout.show();
+        this.show();
+      }
+
+      this._menuText.set_text(labelText);
+    }
+
+    _updatePositionInPanel() {
+      let parent = this.container.get_parent();
+      if (!parent) {
+        return;
+      }
+
+      parent.remove_actor(this.container);
+
+      let boxes = {
+        left: Main.panel._leftBox,
+        center: Main.panel._centerBox,
+        right: Main.panel._rightBox,
+      };
+
+      let position =
+        this._settings.get_int(CONSTANTS.PREF_POSITION_TOPBAR) == 0
+          ? "left"
+          : "right";
+      boxes[position].insert_child_at_index(this.container, 1);
+    }
+
+    destroy() {
+      this._cancellable.cancel();
+      Main.sessionMode.disconnect(this._sessionModeId);
+      this._client?.destroy();
+      this._client = null;
+
+      if (this._timeout) {
+        GLib.source_remove(this._timeout);
+        this._timeout = null;
+      }
+
+      if (this._stSettings && this._colorSchemeSignalId) {
+        this._stSettings.disconnect(this._colorSchemeSignalId);
+        this._colorSchemeSignalId = 0;
+      }
+
+      for (const signal of this._signalIds) {
+        if (this._settings && signal) {
+          this._settings.disconnect(signal);
+        }
+      }
+      this._signalIds = [];
+
+      this._refreshQueued = false;
+      this._refreshItem = null;
+      this.menu.removeAll();
+
+      super.destroy();
+    }
+  },
+);
+
+export default class ColosseumExtension extends Extension {
+  enable() {
+    this.scores = new Colosseum();
+    this.scores.setSettings(
+      this.getSettings("org.gnome.shell.extensions.colosseum"),
+    );
+    this.scores._update();
+
+    Main.panel.addToStatusArea(
+      "colosseum",
+      this.scores,
+      1,
+      this.scores._settings.get_int(CONSTANTS.PREF_POSITION_TOPBAR) == 0
+        ? "left"
+        : "right",
+    );
+  }
+
+  disable() {
+    this.scores.destroy();
+    this.scores = null;
+  }
+}
