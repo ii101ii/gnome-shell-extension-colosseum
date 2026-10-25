@@ -5,7 +5,7 @@
 ![GPL v3 License](https://img.shields.io/badge/license-GPL%20v3-blue.svg)
 
 <p align="center">
-	<img src="https://imgur.com/a/mkzpI7l">
+	<img src="https://photos.app.goo.gl/qMbJ843xX8RZWKM39">
 </p>
 
 A gnome-shell extension to view live scores for your favorite sports teams.
