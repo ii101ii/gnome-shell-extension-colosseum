@@ -5,7 +5,7 @@
 ![GPL v3 License](https://img.shields.io/badge/license-GPL%20v3-blue.svg)
 
 <p align="center">
-	<img src="https://user-images.githubusercontent.com/14242625/126881502-035c4601-686c-4a42-803b-ca817ad56ea4.png">
+	<img src="https://imgur.com/a/mkzpI7l">
 </p>
 
 A gnome-shell extension to view live scores for your favorite sports teams.
@@ -13,7 +13,7 @@ A gnome-shell extension to view live scores for your favorite sports teams.
 Scoreboards show 24px team logos alongside team names in both compact and
 expanded views. Logos load asynchronously from ESPN and are cached in memory
 until the extension is disabled. Teams without an available logo still show
-their names and scores.
+their names and scores.  Added logos and "Always On" toggle to keep it displayed on your desktop.
 
 # Installation
 
